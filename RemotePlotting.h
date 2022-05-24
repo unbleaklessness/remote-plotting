@@ -25,9 +25,10 @@ class RemotePlotting {
   std::atomic<bool> socketAndConnectionReady{};
   std::atomic<bool> running{};
   std::atomic<bool> transmitting{};
+  std::atomic<bool> resettingSocketAndConnection{};
 
-  static constexpr uint16_t port = 8080;
-  static constexpr auto ip = "127.0.0.1";
+  uint16_t port_ = 8080;
+  std::string ip_ = "127.0.0.1";
 
   sizeType numberOfPlots{};
   std::vector<floatType> data{};
@@ -42,4 +43,8 @@ public:
   bool setPlotValue(sizeType plotIndex, floatType x, floatType y);
 
   bool transmit();
+
+  bool isStarted();
+
+  void setAddress(const std::string &ip, uint16_t port);
 };

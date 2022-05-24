@@ -73,22 +73,32 @@ void RemotePlotting::threadFunction(RemotePlotting *s) {
 
     if (s->socketAndConnectionReady.load()) {
 
-      if (s->transmitting.load()) {
+      if (s->resettingSocketAndConnection.load()) {
 
-        s->mutex.lock();
-        auto thisData = s->data;
-        auto thisDataSize = s->data.size();
-        s->mutex.unlock();
+        s->resettingSocketAndConnection = false;
+        shutdown(s->socketHandle, SHUT_RDWR);
+        close(s->socketHandle);
+        s->socketAndConnectionReady = false;
 
-        auto returnValue = send(s->connectionHandle, thisData.data(), thisDataSize * sizeof(floatType), MSG_NOSIGNAL);
+      } else {
 
-        if (-1 == returnValue) {
-          shutdown(s->socketHandle, SHUT_RDWR);
-          close(s->socketHandle);
-          s->socketAndConnectionReady = false;
+        if (s->transmitting.load()) {
+
+          s->mutex.lock();
+          auto thisData = s->data;
+          auto thisDataSize = s->data.size();
+          s->mutex.unlock();
+
+          auto returnValue = send(s->connectionHandle, thisData.data(), thisDataSize * sizeof(floatType), MSG_NOSIGNAL);
+
+          if (-1 == returnValue) {
+            shutdown(s->socketHandle, SHUT_RDWR);
+            close(s->socketHandle);
+            s->socketAndConnectionReady = false;
+          }
+
+          s->transmitting = false;
         }
-
-        s->transmitting = false;
       }
 
     } else {
@@ -101,11 +111,16 @@ void RemotePlotting::threadFunction(RemotePlotting *s) {
       int yes = 1;
       setsockopt(s->socketHandle, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &yes, sizeof(int));
 
+      s->mutex.lock();
+      auto thisPort = s->port_;
+      auto thisIP = s->ip_;
+      s->mutex.unlock();
+
       memset(&s->address, 0, sizeof(address));
       s->address.sin_family = AF_INET;
-      s->address.sin_addr.s_addr = inet_addr(ip);
-      s->address.sin_port = htons(port);
-      inet_aton(ip, &s->address.sin_addr);
+      s->address.sin_addr.s_addr = inet_addr(thisIP.c_str());
+      s->address.sin_port = htons(thisPort);
+      inet_aton(thisIP.c_str(), &s->address.sin_addr);
 
       if (-1 == bind(s->socketHandle, (struct sockaddr*) &s->address, sizeof(address))) {
         shutdown(s->socketHandle, SHUT_RDWR);
@@ -148,3 +163,16 @@ void RemotePlotting::threadFunction(RemotePlotting *s) {
     s->socketAndConnectionReady = false;
   }
 }
+
+bool RemotePlotting::isStarted() {
+  return thread.joinable();
+}
+
+void RemotePlotting::setAddress(const std::string &ip, uint16_t port) {
+  mutex.lock();
+  this->ip_ = ip;
+  this->port_ = port;
+  mutex.unlock();
+  resettingSocketAndConnection = true;
+}
+
